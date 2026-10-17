@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabase";
 
 const CATEGORIES = ["식비", "카페", "교통", "쇼핑", "구독", "기타"];
 const EMOJI = { 식비: "🍚", 카페: "☕", 교통: "🚌", 쇼핑: "🛍️", 구독: "📺", 기타: "📦" };
@@ -17,13 +18,28 @@ function dateLabel(str) {
 
 const emptyForm = { amount: "", place: "", category: CATEGORIES[0], date: "", memo: "" };
 
+const fromRow = (r) => ({ id: r.id, amount: r.amount, place: r.place, category: r.category, date: r.spent_on, memo: r.memo });
+
 export default function Home() {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [today, setToday] = useState(null);
 
-  useEffect(() => setToday(new Date()), []);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setToday(new Date());
+    supabase
+      .from("expenses")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (error) setError("내역을 불러오지 못했어요");
+        else setItems(data.map(fromRow));
+      });
+  }, []);
 
   const monthKey = today ? `${today.getFullYear()}-${pad(today.getMonth() + 1)}` : "";
   const monthTotal = items
@@ -49,14 +65,23 @@ export default function Home() {
     setOpen(true);
   }
 
-  function submit(e) {
+  async function submit(e) {
     e.preventDefault();
     const amount = Number(form.amount);
-    if (!amount || amount <= 0 || !form.place.trim() || !form.date) return;
-    setItems((prev) => [
-      { id: Date.now(), amount, place: form.place.trim(), category: form.category, date: form.date, memo: form.memo.trim() },
-      ...prev,
-    ]);
+    if (!amount || amount <= 0 || !form.place.trim() || !form.date || saving) return;
+    setSaving(true);
+    const { data, error } = await supabase
+      .from("expenses")
+      .insert({ amount, place: form.place.trim(), category: form.category, spent_on: form.date, memo: form.memo.trim() })
+      .select()
+      .single();
+    setSaving(false);
+    if (error) {
+      setError("저장하지 못했어요. 다시 시도해주세요");
+      return;
+    }
+    setError("");
+    setItems((prev) => [fromRow(data), ...prev]);
     setOpen(false);
   }
 
@@ -69,6 +94,8 @@ export default function Home() {
         <p className="label">{today ? `${today.getMonth() + 1}월에 쓴 돈` : "이번 달에 쓴 돈"}</p>
         <h1 className="total">{won(monthTotal)}</h1>
       </header>
+
+      {error && <p className="error">{error}</p>}
 
       {groups.length === 0 ? (
         <section className="empty">
@@ -145,8 +172,8 @@ export default function Home() {
               <input type="text" placeholder="선택 사항" value={form.memo} onChange={set("memo")} />
             </label>
 
-            <button className="btn" type="submit" disabled={!valid}>
-              저장하기
+            <button className="btn" type="submit" disabled={!valid || saving}>
+              {saving ? "저장 중..." : "저장하기"}
             </button>
           </form>
         </div>
