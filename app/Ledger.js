@@ -88,10 +88,7 @@ export default function Ledger() {
   return (
     <main className="app">
       <header className="top">
-        <div className="top-bar">
-          <p className="title">벨류업 가계부</p>
-          <button className="link small" onClick={() => supabase.auth.signOut()}>로그아웃</button>
-        </div>
+        <p className="title">벨류업 가계부</p>
         <p className="label">{today ? `${today.getMonth() + 1}월에 쓴 돈` : "이번 달에 쓴 돈"}</p>
         <h1 className="total">{won(monthTotal)}</h1>
       </header>
