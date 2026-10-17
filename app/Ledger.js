@@ -16,7 +16,18 @@ function dateLabel(str) {
 
 const emptyForm = { amount: "", place: "", category: CATEGORIES[0], date: "", memo: "" };
 
-const fromRow = (r) => ({ id: r.id, amount: r.amount, place: r.place, category: r.category, date: r.spent_on, memo: r.memo });
+// 사진을 긴 변 1600px 이하 JPEG로 줄여 base64로 만든다 (업로드 용량 제한 대비)
+async function compressImage(file) {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bitmap.width * scale);
+  canvas.height = Math.round(bitmap.height * scale);
+  canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+}
+
+const fromRow =(r) => ({ id: r.id, amount: r.amount, place: r.place, category: r.category, date: r.spent_on, memo: r.memo });
 
 export default function Ledger() {
   const [items, setItems] = useState([]);
@@ -26,6 +37,7 @@ export default function Ledger() {
   const [tab, setTab] = useState("list");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [scan, setScan] = useState({ busy: false, text: "", warn: false });
 
   useEffect(() => {
     setToday(new Date());
@@ -60,7 +72,44 @@ export default function Ledger() {
 
   function openSheet() {
     setForm({ ...emptyForm, date: toDateStr(new Date()) });
+    setScan({ busy: false, text: "", warn: false });
     setOpen(true);
+  }
+
+  async function readReceipt(e) {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setScan({ busy: true, text: "영수증을 읽고 있어요...", warn: false });
+    try {
+      const image = await compressImage(file);
+      const res = await fetch("/api/receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image, mimeType: "image/jpeg" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      setForm((f) => ({
+        ...f,
+        amount: data.amount ? String(data.amount) : "",
+        place: data.place ?? "",
+        date: data.date ?? "",
+      }));
+      const missing = [
+        !data.amount && "금액",
+        !data.place && "사용처",
+        !data.date && "날짜",
+      ].filter(Boolean);
+      setScan(
+        missing.length
+          ? { busy: false, text: `${missing.join(", ")}은(는) 읽지 못했어요. 직접 입력해주세요`, warn: true }
+          : { busy: false, text: "영수증에서 읽어 채웠어요. 내용을 확인하고 저장해주세요", warn: false }
+      );
+    } catch (err) {
+      setScan({ busy: false, text: err.message || "영수증을 읽지 못했어요. 직접 입력해주세요", warn: true });
+    }
   }
 
   async function submit(e) {
@@ -142,6 +191,12 @@ export default function Ledger() {
         <div className="dim" onClick={() => setOpen(false)}>
           <form className="sheet" onClick={(e) => e.stopPropagation()} onSubmit={submit}>
             <h2>얼마를 쓰셨나요?</h2>
+
+            <label className="scan-btn">
+              {scan.busy ? "읽는 중..." : "📷 영수증으로 채우기"}
+              <input type="file" accept="image/*" capture="environment" hidden disabled={scan.busy} onChange={readReceipt} />
+            </label>
+            {scan.text && <p className={scan.warn ? "scan-msg warn" : "scan-msg"}>{scan.text}</p>}
 
             <label>
               금액
